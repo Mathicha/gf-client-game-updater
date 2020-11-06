@@ -28,10 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept-Encoding", header::HeaderValue::from_static("gzip"));
 
-    let client = blocking::Client::builder()
-        .default_headers(headers)
-        .gzip(true)
-        .build()?;
+    let client = blocking::Client::builder().default_headers(headers).gzip(true).build()?;
 
     let mut manifest = client
         .get("https://spark.gameforge.com/api/v1/patching/download/latest/tera/default")
@@ -48,24 +45,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(mut file) => match file.metadata() {
                     Ok(metadata) => {
                         if metadata.len() != entry.size {
-                            println!(
-                                "DL: {} (File length missmatch, {} != {})",
-                                entry.file,
-                                metadata.len(),
-                                entry.size
-                            );
-                            get(&client, entry)?
+                            println!("DL: {} (File length missmatch, {} != {})", entry.file, metadata.len(), entry.size);
+                            get(&client, entry)?;
                         } else {
                             let mut sha = Sha1::new();
                             io::copy(&mut file, &mut sha)?;
                             let hash = sha.finalize();
 
                             if format!("{:x}", hash) != entry.sha1 {
-                                println!(
-                                    "DL: {} (Hash missmatch, {:x} != {})",
-                                    entry.file, hash, entry.sha1
-                                );
-                                get(&client, entry)?
+                                println!("DL: {} (Hash missmatch, {:x} != {})", entry.file, hash, entry.sha1);
+                                get(&client, entry)?;
                             } else {
                                 println!("OK: {}", entry.file);
                             }
@@ -73,12 +62,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     Err(_) => {
                         println!("DL: {}", entry.file);
-                        get(&client, entry)?
+                        get(&client, entry)?;
                     }
                 },
                 Err(_) => {
                     println!("DL: {}", entry.file);
-                    get(&client, entry)?
+                    get(&client, entry)?;
                 }
             }
         }
