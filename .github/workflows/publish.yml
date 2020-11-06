@@ -1,0 +1,23 @@
+name: Publish
+
+on: [push]
+
+jobs:
+  publish:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v1
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+      
+      - name: Build
+        run: cargo build --release
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: tera-client-updater.exe
+          path: target/release/tera-client-updater.exe

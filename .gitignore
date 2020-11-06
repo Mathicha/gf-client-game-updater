@@ -1,0 +1,10 @@
+target/
+Cargo.lock
+
+# TERA files
+Client/
+gameforge_api.dll
+gsl_tera.exe
+gsl.ini
+launcher.exe
+psw_tnt.dll
