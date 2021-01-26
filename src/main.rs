@@ -1,4 +1,4 @@
-use std::{fs, io};
+use std::{fs, io, time::Instant};
 
 use reqwest::{blocking::Client, header};
 use serde::Deserialize;
@@ -25,6 +25,8 @@ struct PatchEntry {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let now = Instant::now();
+
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept-Encoding", header::HeaderValue::from_static("gzip"));
 
@@ -81,6 +83,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+
+    println!("Client update done! {}s", now.elapsed().as_secs());
 
     Ok(())
 }
