@@ -1,6 +1,6 @@
 use std::{fs, io};
 
-use reqwest::{blocking, header};
+use reqwest::{blocking::Client, header};
 use serde::Deserialize;
 use sha1::{Digest, Sha1};
 
@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept-Encoding", header::HeaderValue::from_static("gzip"));
 
-    let client = blocking::Client::builder().default_headers(headers).gzip(true).build()?;
+    let client = Client::builder().default_headers(headers).gzip(true).build()?;
 
     let mut manifest = client
         .get("https://spark.gameforge.com/api/v1/patching/download/latest/tera/default")
@@ -37,15 +37,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     manifest.entries.sort_by(|a, b| a.file.cmp(&b.file));
 
-    for entry in manifest.entries {
+    let len = manifest.entries.len();
+
+    for (idx, entry) in manifest.entries.iter().enumerate() {
         if entry.folder {
-            fs::create_dir_all(entry.file)?;
+            fs::create_dir_all(&entry.file)?;
         } else {
+            let cnt = format!("{}/{}", idx, len);
             match fs::File::open(&entry.file) {
                 Ok(mut file) => match file.metadata() {
                     Ok(metadata) => {
                         if metadata.len() != entry.size {
-                            println!("DL: {} (File length missmatch, {} != {})", entry.file, metadata.len(), entry.size);
+                            println!(
+                                "({}) DL: {} (File length missmatch, {} != {})",
+                                cnt,
+                                entry.file,
+                                metadata.len(),
+                                entry.size
+                            );
                             get(&client, entry)?;
                         } else {
                             let mut sha = Sha1::new();
@@ -53,20 +62,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let hash = sha.finalize();
 
                             if format!("{:x}", hash) != entry.sha1 {
-                                println!("DL: {} (Hash missmatch, {:x} != {})", entry.file, hash, entry.sha1);
+                                println!("({}) DL: {} (Hash missmatch, {:x} != {})", cnt, entry.file, hash, entry.sha1);
                                 get(&client, entry)?;
                             } else {
-                                println!("OK: {}", entry.file);
+                                println!("({}) OK: {}", cnt, entry.file);
                             }
                         }
                     }
                     Err(_) => {
-                        println!("DL: {}", entry.file);
+                        println!("({}) DL: {}", cnt, entry.file);
                         get(&client, entry)?;
                     }
                 },
                 Err(_) => {
-                    println!("DL: {}", entry.file);
+                    println!("({}) DL: {}", cnt, entry.file);
                     get(&client, entry)?;
                 }
             }
@@ -76,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn get(client: &blocking::Client, entry: PatchEntry) -> Result<(), Box<dyn std::error::Error>> {
+fn get(client: &Client, entry: &PatchEntry) -> Result<(), Box<dyn std::error::Error>> {
     let mut dest = fs::File::create(&entry.file)?;
 
     let url = format!("http://patches.gameforge.com{}", entry.path);
