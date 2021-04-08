@@ -17,9 +17,12 @@ jobs:
       - name: Build
         run: cargo build --release
 
+      - name: Copy exe
+        run: Copy-Item -Path target/release/gf-client-game-updater.exe -Destination gf-client-game-updater.exe
+
       - uses: actions/upload-artifact@v2
         with:
           name: gf-client-game-updater
           path: |
-            **/**.exe
+            gf-client-game-updater.exe
             config.toml
