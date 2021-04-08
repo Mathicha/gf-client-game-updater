@@ -1,0 +1,12 @@
+# See https://spark.gameforge.com/api/v1/product/ for game list
+# "gameInternalName" is the game name
+
+[[games]]
+name = "tera"
+output = "G:/Gameforge/tera"
+
+# Swords of Legends Online beta internal build
+# removed after i reported it being "public"
+[[games]]
+name = "externalgame"
+output = "G:/SoLO"

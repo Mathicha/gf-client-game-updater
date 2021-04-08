@@ -1,96 +1,96 @@
 use std::{fs, io, time::Instant};
 
-use reqwest::{blocking::Client, header};
-use serde::Deserialize;
+mod config;
+mod patch;
+
+use config::Config;
+use patch::{Patch, PatchEntry};
+use reqwest::blocking::Client;
 use sha1::{Digest, Sha1};
-
-#[derive(Deserialize)]
-struct Patch {
-    #[serde(rename = "totalSize")]
-    total_size: u64,
-    build: u16,
-    entries: Vec<PatchEntry>,
-}
-
-#[derive(Deserialize)]
-struct PatchEntry {
-    #[serde(default)]
-    path: String,
-    #[serde(default)]
-    sha1: String,
-    file: String,
-    flags: u8,
-    size: u64,
-    folder: bool,
-}
+use toml;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = fs::read_to_string("./config.toml")?;
+    let config: Config = toml::from_str(&config)?;
+
+    let client = Client::builder().gzip(true).build()?;
+
     let now = Instant::now();
 
-    let mut headers = header::HeaderMap::new();
-    headers.insert("Accept-Encoding", header::HeaderValue::from_static("gzip"));
+    for game in config.games {
+        let name = game.name;
+        let mut out = game.output;
+        if out == "" {
+            out = format!("games/{}", name.clone())
+        }
 
-    let client = Client::builder().default_headers(headers).gzip(true).build()?;
+        print!("Processing game {}.. (path: {})", name, out);
 
-    let mut manifest = client
-        .get("https://spark.gameforge.com/api/v1/patching/download/latest/tera/default")
-        .send()?
-        .json::<Patch>()?;
+        fs::create_dir_all(&out)?;
 
-    manifest.entries.sort_by(|a, b| a.file.cmp(&b.file));
+        let mut manifest = client
+            .get(&format!(
+                "https://spark.gameforge.com/api/v1/patching/download/latest/{}/default",
+                name
+            ))
+            .send()?
+            .json::<Patch>()?;
 
-    let len = manifest.entries.len();
+        manifest.entries.sort_by(|a, b| a.file.cmp(&b.file));
 
-    for (idx, entry) in manifest.entries.iter().enumerate() {
-        if entry.folder {
-            fs::create_dir_all(&entry.file)?;
-        } else {
-            let cnt = format!("{}/{}", idx, len);
-            match fs::File::open(&entry.file) {
-                Ok(mut file) => match file.metadata() {
-                    Ok(metadata) => {
-                        if metadata.len() != entry.size {
-                            println!(
-                                "({}) DL: {} (File length missmatch, {} != {})",
-                                cnt,
-                                entry.file,
-                                metadata.len(),
-                                entry.size
-                            );
-                            get(&client, entry)?;
-                        } else {
-                            let mut sha = Sha1::new();
-                            io::copy(&mut file, &mut sha)?;
-                            let hash = sha.finalize();
+        let len = manifest.entries.len();
 
-                            if format!("{:x}", hash) != entry.sha1 {
-                                println!("({}) DL: {} (Hash missmatch, {:x} != {})", cnt, entry.file, hash, entry.sha1);
-                                get(&client, entry)?;
+        for (idx, entry) in manifest.entries.iter().enumerate() {
+            if entry.folder {
+                fs::create_dir_all(format!("{}/{}", out, entry.file))?;
+            } else {
+                let cnt = format!("({}/{}) ", idx, len);
+                match fs::File::open(format!("{}/{}", out, entry.file)) {
+                    Ok(mut file) => match file.metadata() {
+                        Ok(metadata) => {
+                            if metadata.len() != entry.size {
+                                println!(
+                                    "{}DL: {} (File length missmatch, {} != {})",
+                                    cnt,
+                                    entry.file,
+                                    metadata.len(),
+                                    entry.size
+                                );
+                                get(&client, entry, &out)?;
                             } else {
-                                println!("({}) OK: {}", cnt, entry.file);
+                                let mut sha = Sha1::new();
+                                io::copy(&mut file, &mut sha)?;
+                                let hash = sha.finalize();
+
+                                if format!("{:x}", hash) != entry.sha1 {
+                                    println!("{}DL: {} (Hash missmatch, {:x} != {})", cnt, entry.file, hash, entry.sha1);
+                                    get(&client, entry, &out)?;
+                                } else {
+                                    println!("{}OK: {}", cnt, entry.file);
+                                }
                             }
                         }
-                    }
+                        Err(_) => {
+                            println!("{}DL: {}", cnt, entry.file);
+                            get(&client, entry, &out)?;
+                        }
+                    },
                     Err(_) => {
-                        println!("({}) DL: {}", cnt, entry.file);
-                        get(&client, entry)?;
+                        println!("{}DL: {}", cnt, entry.file);
+                        get(&client, entry, &out)?;
                     }
-                },
-                Err(_) => {
-                    println!("({}) DL: {}", cnt, entry.file);
-                    get(&client, entry)?;
                 }
             }
         }
     }
 
-    println!("Client update done! {}s", now.elapsed().as_secs());
+    println!("All games updated! {}s", now.elapsed().as_secs());
 
     Ok(())
 }
 
-fn get(client: &Client, entry: &PatchEntry) -> Result<(), Box<dyn std::error::Error>> {
-    let mut dest = fs::File::create(&entry.file)?;
+fn get(client: &Client, entry: &PatchEntry, out: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut dest = fs::File::create(format!("{}/{}", out, entry.file))?;
 
     let url = format!("http://patches.gameforge.com{}", entry.path);
     client.get(&url).send()?.copy_to(&mut dest)?;

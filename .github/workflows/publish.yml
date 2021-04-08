@@ -13,11 +13,13 @@ jobs:
         with:
           profile: minimal
           toolchain: stable
-      
+
       - name: Build
         run: cargo build --release
 
       - uses: actions/upload-artifact@v2
         with:
-          name: tera-client-updater
-          path: target/release/tera-client-updater.exe
+          name: gf-client-game-updater
+          path: |
+            target/release/gf-client-game-updater.exe
+            config.toml
