@@ -1,12 +1,18 @@
-# See https://spark.gameforge.com/api/v1/product/ for game list
-# "gameInternalName" is the game name
+# See https://spark.gameforge.com/api/v1/product/ for game list, "gameInternalName" is the game name
+# See https://spark.gameforge.com/api/v1/patching/download/branches/${gameInternalName} for branchs list
 
-[[games]]
-name = "tera"
-output = "G:/Gameforge/tera"
+# skip sha1 validation, better to keep this to false
+skip_hash = false
 
-# Swords of Legends Online beta internal build
-# removed after i reported it being "public"
+# oh no gameforge u did it again, something unreleased is public on your servers :|
 [[games]]
-name = "externalgame"
-output = "G:/SoLO"
+name = "aionclassic"
+branch = "default"
+output = "./games/aionclassic/default"
+sandbox = true
+
+# [[games]]
+# name = "aion"
+# branch = "default"
+# output = "./games/aion/default"
+# sandbox = true

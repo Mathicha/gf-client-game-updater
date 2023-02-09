@@ -1,16 +1,20 @@
-use std::{fs, io, time::Instant};
-
 mod config;
 mod patch;
+mod sha;
 
 use config::Config;
-use patch::{Patch, PatchEntry};
-use reqwest::blocking::Client;
-use sha1::{Digest, Sha1};
+use patch::{File, Patch, PatchEntry};
+
+use std::cmp::Ordering;
+
+use tokio::{fs, io, time::Instant};
+
+use reqwest::Client;
 use toml;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = fs::read_to_string("./config.toml")?;
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = fs::read_to_string("./config.toml").await?;
     let config: Config = toml::from_str(&config)?;
 
     let client = Client::builder().gzip(true).build()?;
@@ -20,66 +24,71 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for game in config.games {
         let name = game.name;
         let mut out = game.output;
+        let mut branch = game.branch;
         if out == "" {
             out = format!("games/{}", name.clone())
         }
+        if branch == "" {
+            branch = "default".into();
+        }
+        let manifest_url = match game.sandbox {
+            true => format!("https://spark-sandbox.gameforge.com/api/v1/patching/download/latest/{}/{}", name, branch),
+            false => format!("https://spark.gameforge.com/api/v1/patching/download/latest/{}/{}", name, branch),
+        };
 
-        print!("Processing game {}.. (path: {})", name, out);
+        println!("Processing game {}.. (path: {})", name, out);
 
-        fs::create_dir_all(&out)?;
+        fs::create_dir_all(&out).await?;
 
-        let mut manifest = client
-            .get(&format!(
-                "https://spark.gameforge.com/api/v1/patching/download/latest/{}/default",
-                name
-            ))
-            .send()?
-            .json::<Patch>()?;
+        let mut manifest = client.get(manifest_url).send().await?.json::<Patch>().await?;
 
-        manifest.entries.sort_by(|a, b| a.file.cmp(&b.file));
+        // sort with folder first
+        manifest.entries.sort_by(|l, r| match (l, r) {
+            (_, PatchEntry::File(_)) => Ordering::Less,
+            (PatchEntry::File(_), _) => Ordering::Greater,
+            (_, _) => Ordering::Equal,
+        });
 
         let len = manifest.entries.len();
 
+        // todo: process this in parallel
         for (idx, entry) in manifest.entries.iter().enumerate() {
-            if entry.folder {
-                fs::create_dir_all(format!("{}/{}", out, entry.file))?;
-            } else {
-                let cnt = format!("({}/{}) ", idx, len);
-                match fs::File::open(format!("{}/{}", out, entry.file)) {
-                    Ok(mut file) => match file.metadata() {
+            let cnt = format!("({}/{}) ", idx, len);
+            match entry {
+                PatchEntry::Folder(entry) => fs::create_dir_all(format!("{}/{}", out, entry.file)).await?,
+                PatchEntry::File(entry) => match fs::File::open(format!("{}/{}", out, entry.file)).await {
+                    Ok(file) => match file.metadata().await {
                         Ok(metadata) => {
+                            let mut need_dl = false;
                             if metadata.len() != entry.size {
-                                println!(
-                                    "{}DL: {} (File length missmatch, {} != {})",
-                                    cnt,
-                                    entry.file,
-                                    metadata.len(),
-                                    entry.size
-                                );
-                                get(&client, entry, &out)?;
-                            } else {
-                                let mut sha = Sha1::new();
-                                io::copy(&mut file, &mut sha)?;
-                                let hash = sha.finalize();
-
-                                if format!("{:x}", hash) != entry.sha1 {
-                                    println!("{}DL: {} (Hash missmatch, {:x} != {})", cnt, entry.file, hash, entry.sha1);
-                                    get(&client, entry, &out)?;
+                                println!("{}DL: {} (File length missmatch, {} != {})", cnt, entry.file, metadata.len(), entry.size);
+                                need_dl = true;
+                            } else if !config.skip_hash {
+                                let hash = sha::calc_sha(file).await?;
+                                if hash != entry.sha1 {
+                                    println!("{}DL: {} (Hash missmatch, {} != {})", cnt, entry.file, hash, entry.sha1);
+                                    need_dl = true;
                                 } else {
                                     println!("{}OK: {}", cnt, entry.file);
                                 }
+                            } else {
+                                println!("{}OK: {} (hash skipped)", cnt, entry.file);
+                            }
+
+                            if need_dl {
+                                get(&client, entry, &out).await?;
                             }
                         }
                         Err(_) => {
                             println!("{}DL: {}", cnt, entry.file);
-                            get(&client, entry, &out)?;
+                            get(&client, entry, &out).await?;
                         }
                     },
                     Err(_) => {
                         println!("{}DL: {}", cnt, entry.file);
-                        get(&client, entry, &out)?;
+                        get(&client, entry, &out).await?;
                     }
-                }
+                },
             }
         }
     }
@@ -89,11 +98,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn get(client: &Client, entry: &PatchEntry, out: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut dest = fs::File::create(format!("{}/{}", out, entry.file))?;
+async fn get(client: &Client, entry: &File, out: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut dest = fs::File::create(format!("{}/{}", out, entry.file)).await?;
 
     let url = format!("http://patches.gameforge.com{}", entry.path);
-    client.get(&url).send()?.copy_to(&mut dest)?;
+    let resp = client.get(&url).send().await?;
+    let bytes = resp.bytes().await?;
+
+    io::copy(&mut &*bytes, &mut dest).await?;
+    dest.sync_all().await?;
 
     Ok(())
 }
